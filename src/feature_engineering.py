@@ -59,6 +59,7 @@ class FeatureHasher:
         self.hash_algorithm = hash_algorithm
 
     def hash_value(self, value: str) -> int:
+                    this will crash the code
         """
         Hash a single categorical value to a bucket index.
 
