@@ -1,0 +1,437 @@
+# =============================================================================
+# GitHub Actions CI/CD Pipeline for High-Cardinality Prediction Service
+# =============================================================================
+#
+# Pipeline Stages (in order):
+#   1. BUILD        - Install dependencies and prepare environment
+#   2. UNIT TEST    - Run fast, isolated tests for feature engineering
+#   3. LINT         - Static code analysis with Flake8
+#   4. PACKAGE      - Build Docker container (ONLY ONCE)
+#   5. SMOKE TEST   - End-to-end deployment verification
+#
+# MLOps Principles Implemented:
+#   - Everything in version control
+#   - Automated build verification
+#   - Only build binaries once
+#   - Stop the line on failure
+# =============================================================================
+
+name: MLOps CI/CD Pipeline
+
+# Trigger on push to main/master and on pull requests
+on:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+  pull_request:
+    branches:
+      - main
+      - master
+
+# Environment variables
+env:
+  PYTHON_VERSION: "3.11"
+  DOCKER_IMAGE_NAME: "prediction-service"
+  DOCKER_IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  # ===========================================================================
+  # STAGE 1: BUILD
+  # ===========================================================================
+  # Install dependencies and prepare the build environment
+  # This stage ensures all requirements are available for subsequent stages
+  # ===========================================================================
+  build:
+    name: "Stage 1: Build"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verify installation
+        run: |
+          python -c "import fastapi; print(f'FastAPI version: {fastapi.__version__}')"
+          python -c "import sklearn; print(f'Scikit-learn version: {sklearn.__version__}')"
+          python -c "import numpy; print(f'NumPy version: {numpy.__version__}')"
+
+      - name: Cache Python packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+  # ===========================================================================
+  # STAGE 2: UNIT TEST
+  # ===========================================================================
+  # Run FAST, ISOLATED unit tests for feature engineering logic
+  #
+  # These tests:
+  #   - Are FAST (no I/O, no network, no database)
+  #   - Test PURE FUNCTIONS (deterministic, no side effects)
+  #   - Verify hashing/embedding logic correctness
+  #
+  # CRITICAL: Failure here STOPS the pipeline (Stop the Line!)
+  # ===========================================================================
+  unit-test:
+    name: "Stage 2: Unit Test"
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Unit Tests
+        run: |
+          echo "============================================="
+          echo "Running UNIT TESTS for Feature Engineering"
+          echo "============================================="
+          echo ""
+          echo "These tests are:"
+          echo "  ✓ FAST (pure mathematical operations)"
+          echo "  ✓ ISOLATED (no external dependencies)"
+          echo "  ✓ DETERMINISTIC (same input → same output)"
+          echo ""
+          pytest tests/test_feature_engineering.py -v --tb=short --junit-xml=test-results-unit.xml
+
+      - name: Upload Unit Test Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-test-results
+          path: test-results-unit.xml
+
+      - name: Test Summary
+        if: always()
+        run: |
+          echo "============================================="
+          echo "Unit Test Stage Complete"
+          echo "============================================="
+
+  # ===========================================================================
+  # STAGE 3: CODE ANALYSIS / LINTING
+  # ===========================================================================
+  # Static analysis with Flake8 to check code style and syntax
+  #
+  # CRITICAL: Failure to meet thresholds FAILS the build
+  # ===========================================================================
+  lint:
+    name: "Stage 3: Lint"
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install Flake8
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8
+
+      - name: Run Flake8 Linting
+        run: |
+          echo "============================================="
+          echo "Running STATIC CODE ANALYSIS (Flake8)"
+          echo "============================================="
+          echo ""
+          echo "Checking for:"
+          echo "  ✓ Code style violations"
+          echo "  ✓ Syntax errors"
+          echo "  ✓ Undefined names"
+          echo "  ✓ Unused imports"
+          echo ""
+          flake8 src/ tests/ --count --show-source --statistics
+
+      - name: Linting Summary
+        if: always()
+        run: |
+          echo "============================================="
+          echo "Linting Stage Complete"
+          echo "============================================="
+
+  # ===========================================================================
+  # STAGE 4: COMPONENT/INTEGRATION TEST
+  # ===========================================================================
+  # Run integration tests that verify component interactions
+  #
+  # Unlike unit tests, these:
+  #   - Test multiple components working together
+  #   - May involve file system or mock databases
+  #   - Are slower but more comprehensive
+  # ===========================================================================
+  integration-test:
+    name: "Stage 4: Integration Test"
+    runs-on: ubuntu-latest
+    needs: [unit-test, lint]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Integration Tests
+        run: |
+          echo "============================================="
+          echo "Running COMPONENT/INTEGRATION TESTS"
+          echo "============================================="
+          echo ""
+          echo "These tests verify:"
+          echo "  ✓ Feature Engineering + Model integration"
+          echo "  ✓ API endpoint functionality"
+          echo "  ✓ Data consistency across pipeline"
+          echo ""
+          pytest tests/test_integration.py -v --tb=short --junit-xml=test-results-integration.xml
+
+      - name: Upload Integration Test Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-results
+          path: test-results-integration.xml
+
+  # ===========================================================================
+  # STAGE 5: PACKAGE (Docker Build)
+  # ===========================================================================
+  # Build the Docker container ONCE
+  #
+  # MLOps Principle: "Only build your binaries once"
+  # The same image built here is used for smoke testing and deployment
+  # ===========================================================================
+  package:
+    name: "Stage 5: Package"
+    runs-on: ubuntu-latest
+    needs: [integration-test]
+
+    outputs:
+      image_tag: ${{ steps.build.outputs.image_tag }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Image
+        id: build
+        run: |
+          echo "============================================="
+          echo "Building Docker Container"
+          echo "============================================="
+          echo ""
+          echo "MLOps Principle: 'Only build your binaries once'"
+          echo "This image will be used for smoke testing and deployment"
+          echo ""
+          docker build -t ${{ env.DOCKER_IMAGE_NAME }}:${{ env.DOCKER_IMAGE_TAG }} .
+          docker tag ${{ env.DOCKER_IMAGE_NAME }}:${{ env.DOCKER_IMAGE_TAG }} ${{ env.DOCKER_IMAGE_NAME }}:latest
+          echo "image_tag=${{ env.DOCKER_IMAGE_TAG }}" >> $GITHUB_OUTPUT
+
+      - name: List Docker Images
+        run: |
+          docker images | grep ${{ env.DOCKER_IMAGE_NAME }}
+
+      - name: Save Docker Image
+        run: |
+          docker save ${{ env.DOCKER_IMAGE_NAME }}:${{ env.DOCKER_IMAGE_TAG }} -o prediction-service.tar
+
+      - name: Upload Docker Image Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: prediction-service.tar
+          retention-days: 1
+
+  # ===========================================================================
+  # STAGE 6: SMOKE TEST (Deployment Test)
+  # ===========================================================================
+  # End-to-end verification that the container works correctly
+  #
+  # This is the CRITICAL "Deployment Test":
+  #   - Spins up the container
+  #   - Sends actual prediction requests
+  #   - Verifies HTTP 200 OK response
+  #
+  # CRITICAL: Failure here BLOCKS deployment to production!
+  # ===========================================================================
+  smoke-test:
+    name: "Stage 6: Smoke Test"
+    runs-on: ubuntu-latest
+    needs: package
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install test dependencies
+        run: |
+          pip install requests
+
+      - name: Download Docker Image
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+
+      - name: Load Docker Image
+        run: |
+          docker load -i prediction-service.tar
+          docker images | grep ${{ env.DOCKER_IMAGE_NAME }}
+
+      - name: Start Container
+        run: |
+          echo "============================================="
+          echo "Starting Prediction Service Container"
+          echo "============================================="
+          docker run -d \
+            --name prediction-service-test \
+            -p 8000:8000 \
+            ${{ env.DOCKER_IMAGE_NAME }}:${{ env.DOCKER_IMAGE_TAG }}
+
+          # Wait for container to be healthy
+          echo "Waiting for service to start..."
+          sleep 10
+
+          # Check container is running
+          docker ps | grep prediction-service-test
+
+      - name: Container Logs (Debug)
+        if: always()
+        run: |
+          echo "=== Container Logs ==="
+          docker logs prediction-service-test
+
+      - name: Run Smoke Tests
+        run: |
+          echo "============================================="
+          echo "Running SMOKE TESTS (Deployment Verification)"
+          echo "============================================="
+          echo ""
+          echo "This is the END-TO-END test that verifies:"
+          echo "  ✓ Service is running"
+          echo "  ✓ Health endpoint returns 200 OK"
+          echo "  ✓ Prediction endpoint works correctly"
+          echo ""
+          echo "CRITICAL: If this fails, deployment is BLOCKED!"
+          echo ""
+          python scripts/smoke_test.py --host localhost --port 8000 --retries 5 --retry-delay 3
+
+      - name: Alternative Smoke Test with curl
+        if: always()
+        run: |
+          echo "=== Health Check with curl ==="
+          curl -v http://localhost:8000/health || echo "Health check failed"
+
+          echo ""
+          echo "=== Prediction Request with curl ==="
+          curl -v -X POST http://localhost:8000/predict \
+            -H "Content-Type: application/json" \
+            -d '{"user_id": "test_user", "product_id": "test_product", "category": "test", "price": 99.99, "quantity": 1}' \
+            || echo "Prediction request failed"
+
+      - name: Stop Container
+        if: always()
+        run: |
+          docker stop prediction-service-test || true
+          docker rm prediction-service-test || true
+
+      - name: Smoke Test Summary
+        if: success()
+        run: |
+          echo "============================================="
+          echo "🎉 ALL SMOKE TESTS PASSED!"
+          echo "============================================="
+          echo ""
+          echo "The deployment is verified and ready for production."
+          echo ""
+          echo "Pipeline Summary:"
+          echo "  ✅ Build      - Dependencies installed"
+          echo "  ✅ Unit Test  - Feature engineering verified"
+          echo "  ✅ Lint       - Code quality checked"
+          echo "  ✅ Integration- Component interactions verified"
+          echo "  ✅ Package    - Docker image built"
+          echo "  ✅ Smoke Test - End-to-end verification passed"
+
+  # ===========================================================================
+  # DEPLOYMENT (Optional - Only on main branch after all tests pass)
+  # ===========================================================================
+  # This stage would deploy to production
+  # Only runs if ALL previous stages pass
+  # ===========================================================================
+  deploy:
+    name: "Deploy to Production"
+    runs-on: ubuntu-latest
+    needs: smoke-test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Docker Image
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+
+      - name: Deploy Notification
+        run: |
+          echo "============================================="
+          echo "🚀 DEPLOYMENT STAGE"
+          echo "============================================="
+          echo ""
+          echo "All tests have passed. Ready for deployment!"
+          echo ""
+          echo "In a real scenario, this stage would:"
+          echo "  - Push image to container registry"
+          echo "  - Deploy to Kubernetes/ECS/etc."
+          echo "  - Update load balancer"
+          echo "  - Run post-deployment verification"
+          echo ""
+          echo "Image: ${{ env.DOCKER_IMAGE_NAME }}:${{ env.DOCKER_IMAGE_TAG }}"
